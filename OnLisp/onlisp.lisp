@@ -471,7 +471,6 @@ lst
 
 (mostn #'length '((a b) (a b c) (a d) (e f g h)))
 
-<<<<<<< HEAD
 (defun map0-n (fn n)
 	(mapa-b fn 0 n))
 
@@ -570,8 +569,6 @@ lst
 	Chapter 5.
 	Returning functions.
 |#
-=======
-
 
 (remove-if-not #'evenp '(1 2 3 4 5 6))
 
@@ -634,4 +631,3 @@ lst
 (time (funcall slowid 7))
 
 (time (funcall slowid 7))
->>>>>>> c9a533f5e6714cc719ca9ee6f32b0386cedc1384
