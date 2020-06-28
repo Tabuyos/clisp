@@ -471,6 +471,7 @@ lst
 
 (mostn #'length '((a b) (a b c) (a d) (e f g h)))
 
+<<<<<<< HEAD
 (defun map0-n (fn n)
 	(mapa-b fn 0 n))
 
@@ -569,3 +570,68 @@ lst
 	Chapter 5.
 	Returning functions.
 |#
+=======
+
+
+(remove-if-not #'evenp '(1 2 3 4 5 6))
+
+(remove-if (complement #'evenp) '(1 2 3 4 5 6))
+
+(defun joiner (obj)
+	(typecase obj
+		(cons #'append)
+		(number #'+)))
+
+;; polymorphic -> join
+(defun join (&rest args)
+	(apply (joiner (car args)) args))
+
+(join 1 2 3)
+
+(defun make-adder (n)
+	#'(lambda (x) (+ x n)))
+
+(setq add3 (make-adder 3))
+
+(funcall add3 2)
+
+(defun my-complement (fn)
+	#'(lambda (&rest args) (not (apply fn args))))
+
+(remove-if (my-complement #'evenp) '(1 2 3 4 5 6))
+
+(defvar *!equivs* (make-hash-table))
+
+(defun ! (fn)
+	(or (gethash fn *!equivs*)fn))
+
+(defun def! (fn fn!)
+	(setf (gethash fn *!equivs*) fn!))
+
+(def! #'remove-if #'delete-if)
+
+(setq lst '(1 2 3 4 5 6 7))
+
+(delete-if #'oddp lst)
+
+(funcall (! #'remove-if) #'oddp lst)
+
+(defun memoize (fn)
+	(let ((cache (make-hash-table :test #'equal)))
+		#'(lambda (&rest args)
+			  (multiple-value-bind (val win) (gethash args cache)
+				  (if win
+					  val
+					  (setf (gethash args cache)
+						  (apply fn args)))))))
+
+(setq slowid (memoize #'(lambda (x) (sleep 5) x)))
+
+(time (funcall slowid 1))
+
+(time (funcall slowid 1))
+
+(time (funcall slowid 7))
+
+(time (funcall slowid 7))
+>>>>>>> c9a533f5e6714cc719ca9ee6f32b0386cedc1384
