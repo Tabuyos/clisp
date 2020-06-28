@@ -471,3 +471,101 @@ lst
 
 (mostn #'length '((a b) (a b c) (a d) (e f g h)))
 
+(defun map0-n (fn n)
+	(mapa-b fn 0 n))
+
+(defun map1-n (fn n)
+	(mapa-b fn 1 n))
+
+(defun mapa-b (fn a b &optional (step 1))
+	(do ((i a (+ i step))
+			(result nil))
+		((> i b) (nreverse result))
+		(push (funcall fn i) result)))
+
+(map0-n #'1+ 5)
+
+(map1-n #'1+ 5)
+
+(defun map-> (fn start test-fn succ-fn)
+	(do ((i start (funcall succ-fn i))
+			(result nil))
+		((funcall test-fn i) (nreverse result))
+		(push (funcall fn i) result)))
+
+(do ((i 0 (1+ i))) ((= i 6)) (format t "~A~%" i))
+
+(defun mapcars (fn &rest lsts)
+	(let ((result nil))
+		(dolist (lst lsts)
+			(dolist (obj lst)
+				(push (funcall fn obj) result)))
+		(nreverse result)))
+
+;; rmapcar: recursive mapcar
+(defun rmapcar (fn &rest args)
+	(if (some #'atom args)
+		(apply fn args)
+		(apply #'mapcar #'(lambda (&rest args)
+							  (apply #'rmapcar fn args))
+			args)))
+
+(mapcars #'sqrt '(1 2 3) '(4 5 6 7) '(8) '(9))
+
+(rmapcar #'sqrt '(1 2 3 (4 5 (6 7 8 (9)))))
+
+(some #'atom '(1 (2)))
+
+(defun readlist (&rest args)
+	(values (read-from-string (concatenate 'string "(" (apply #'read-line args) ")"))))
+
+(defun prompt (&rest args)
+	(apply #'format *query-io* args)
+	(read *query-io*))
+
+(defun break-loop (fn quit &rest args)
+	(format *query-io* "Entering break-loop. '~%")
+	(loop
+		(let ((in (apply #'prompt args)))
+			(if (funcall quit in)
+				(return)
+				(format *query-io* "~A~%" (funcall fn in))))))
+
+(readlist)
+
+(values 1 2 3)
+
+(prompt "Entering a number between ~A and ~A ~% >> "1 10)
+
+(defun mkstr (&rest args)
+	(with-output-to-string (s)
+		(dolist (a args) (princ a s))))
+
+(defun symb (&rest args)
+	(values (intern (apply #'mkstr args))))
+
+(defun reread (&rest args)
+	(values (read-from-string (apply #'mkstr args))))
+
+(defun explode (sym)
+	(map 'list #'(lambda (c)
+					 (intern (make-string 1 :initial-element c)))
+		(symbol-name sym)))
+
+(mkstr pi " pieces of " 'pi)
+
+(symb 'ar "Madi" #\L #\L 0)
+
+(symb '(a b))
+
+(let ((s (symb '(a b))))
+	(and (eq s '|(A B)|) (eq s '\(A\ B\))))
+
+(explode 'tabuyos)
+
+(symbol-name 'tabuyos)
+
+#|
+	Chapter 5.
+	Returning functions.
+|#
