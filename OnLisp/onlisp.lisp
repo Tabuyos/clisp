@@ -631,3 +631,298 @@ lst
 (time (funcall slowid 7))
 
 (time (funcall slowid 7))
+
+(defun compose (&rest fns)
+	(if fns
+		(let ((fn1 (car (last fns)))
+				 (fns (butlast fns)))
+			#'(lambda (&rest args)
+				  (reduce #'funcall fns
+					  :from-end t
+					  :initial-value (apply fn1 args))))
+		#'identity))
+
+(funcall (compose #'list #'1+) 1)
+
+(funcall (compose #'1+ #'find-if) #'oddp '(2 3 4))
+
+(funcall (compose #'1+ #'find-if) #'oddp '(2 9 4))
+
+(defun my-complement (pred)
+	(compose #'not pred))
+
+(mapcar #'(lambda (x)
+			  (if (slave x)
+				  (owner x)
+				  (employer x)))
+	people)
+
+(defun fif (if then &optional else)
+	#'(lambda (x)
+		  (if (funcall if x)
+			  (funcall then x)
+			  (if else (funcall else x)))))
+
+(defun fint (fn &rest fns)
+	(if (null fns)
+		fn
+		(let ((chain (apply #'fint fns)))
+			#'(lambda (x)
+				  (and (funcall fn x) (funcall chain x))))))
+
+(defun fun (fn &rest fns)
+	(if (null fns)
+		fn
+		(let ((chain (apply #'fun fns)))
+			#'(lambda (x)
+				  (or (funcall fn x) (funcall chain x))))))
+
+(find-if #'(lambda (x)
+			   (and (signed x) (sealed x) (delivered x)))
+	docs)
+
+;; equal
+(find-if (fint #'signed #'sealed #'delivered) docs)
+
+(defun our-length (lst)
+	(if (null lst)
+		0
+		(1+ (our-length (cdr lst)))))
+
+(defun our-every (fn lst)
+	(if (null lst)
+		t
+		(and (funcall fn (car lst))
+			(our-every fn (cdr lst)))))
+
+(our-every #'oddp '(1 3 5 6))
+
+(defun lrec (rec &optional base)
+	(labels ((self (lst)
+				 (if (null lst)
+					 (if (functionp base)
+						 (funcall base)
+						 base)
+					 (funcall rec (car lst)
+						 #'(lambda ()
+							   (self (cdr lst)))))))
+		#'self))
+
+;; lrec's first argument must be function that can be capture two arguments that car of list and function
+
+;; our-length
+(lrec #'(lambda (x f) (1+ (funcall f))) 0)
+
+;; our-every
+(lrec #'(lambda (x f) (and (oddp x) (funcall f))) t)
+
+(functionp t)
+
+(functionp nil)
+
+;; copy-list
+(lrec #'(lambda (x f) (cons x (funcall f))))
+
+;; remove-duplicates
+(lrec #'(lambda (x f) (adjoin x (funcall f))))
+
+;; find-if, for some function fn
+(lrec #'(lambda (x f) (if (fn x) x (funcall f))))
+
+;; some, for some function fn
+(lrec #'(lambda (x f) (or (fn x) (funcall f))))
+
+(setq x '(a b)
+	listx (list x 1))
+
+(eq x (car (copy-list listx)))  ;; t
+
+(eq x (car (copy-tree listx))) ;; nil
+
+(eq (car (copy-list listx)) (car (copy-tree listx)))
+
+(car (copy-list listx))
+
+(car (copy-tree listx))
+
+(defun out-copy-tree (tree)
+	(if (atom tree)
+		tree
+		(cons (our-copy-tree (car tree))
+			(if (cdr tree) (our-copy-tree (cdr tree))))))
+
+(defun count-leaves (tree)
+	(if (atom tree)
+		1
+		(+ (count-leaves (car tree))
+			(or (if (cdr tree) (count-leaves (cdr tree))) 1))))
+
+(count-leaves '(a b (c d) (e)))
+
+(count-leaves '((a b (c d)) (e) f))
+
+'((a . (b . ((c . (d . nil)) . nil))) . ((e . nil) . (f . nil)))
+
+(count-leaves '(a b))
+
+(defun rfind-if (fn tree)
+	(if (atom tree)
+		(and (funcall fn tree) tree)
+		(or (rfind-if fn (car tree))
+			(if (cdr tree) (rfind-if fn (cdr tree))))))
+
+(rfind-if (fint #'numberp #'oddp) '(2 (3 4) 5))
+
+#|
+	Chapter 6.
+	Functions as Representation.
+|#
+
+(defstruct node contents yes no)
+
+(defvar *nodes* (make-hash-table))
+
+(defun defnode (name conts &optional yes no)
+	(setf (gethash name *nodes*)
+		(make-node :contents conts
+			:yes yes
+			:no no)))
+
+(defnode 'people "Is the person a man?" 'male 'female)
+
+(defnode 'male "Is he living?" 'liveman 'deadman)
+
+(defnode 'deadman "Was he American?" 'us 'them)
+
+(defnode 'us "Is he on a coin?" 'coin 'cidence)
+
+(defnode 'coin "Is the coin penny?" 'penny 'coins)
+
+(defnode 'penny 'lincoln)
+
+(defun run-node (name)
+	(let ((n (gethash name *nodes*)))
+		(cond ((node-yes n)
+				  (format t "~A~%>> " (node-contents n))
+				  (case (read)
+					  (yes (run-node (node-yes n)))
+					  (t (run-node (node-no n)))))
+			(t (node-contents n)))))
+
+(run-node 'people)
+
+(setq n (compile-net 'people))
+
+#|
+	Chapter 7.
+	Macros.
+|#
+
+(defmacro nil! (var)
+	(list 'setq var nil))
+
+(nil! x)
+
+(defmacro nil! (var)
+	`(setq ,var nil))
+
+;; use backquote
+(defmacro nif (expr pos zero neg)
+	`(case (truncate (signum ,expr))
+		 (1 ,pos)
+		 (0 ,zero)
+		 (-1 ,neg)))
+
+;; use non-backquote
+(defmacro nif (expr pos zero neg)
+	(list 'case
+		(list 'truncate (list 'signum expr))
+		(list 1 pos)
+		(list 0 zero)
+		(list -1 neg)))
+
+(mapcar #'(lambda (x)
+			  (nif x 'p 'z 'n))
+	'(0 2.5 -8))
+
+(case (truncate (signum 2))
+	(1 'p)
+	(0 'z)
+	(-1 'n))
+
+(setq b '(1 2 3))
+
+`(a ,b c) ;; (A (1 2 3) C)
+
+`(a ,@b c) ;; (A 1 2 3 C)
+
+`(a ,@1)
+
+(defun greet (name)
+	`(hello ,name))
+
+(greet "tabuyos")
+
+;; macro expand for nil!
+(macroexpand-1 '(nil! x))
+
+(member x choices :test #'eq)
+
+(defmacro memq (obj lst)
+	`(member ,obj ,lst :test #'eq))
+
+(defmacro my-memq (obj lst)
+	(list 'member obj lst ':test '#'eq))
+
+(macroexpand-1 '(my-memq x choices))
+
+(defmacro my-while (test &body body)
+	`(do ()
+		 ((not ,test))
+		 ,@body))
+
+(pprint (macroexpand '(my-while (able) (laugh))))
+
+(defmacro mac (expr)
+	`(pprint (macroexpand-1 ',expr)))
+
+(mac (or x y))
+
+(mac (nil! x))
+
+(multiple-value-bind (exp bool) (macroexpand-1 '(memq 'a '(a b c))) (setq gexp exp))
+
+gexp
+
+(eval gexp)
+
+;; destructuring
+(defun foo (x y z)
+	(+ x y z))
+
+(foo 1 2 3)
+
+(destructuring-bind (x (y) . z) '(a (b) c d)
+	(list x y z))
+
+(mac '(dolist (x '(a b c)) (print x)))
+
+(dolist (x '(a b c)) (print x))
+
+(defmacro our-dolist ((var list &optional result) &body body)
+	`(progn
+		 (mapc #'(lambda (,var) ,@body) ,list)
+		 (let ((,var nil)) ,result)))
+
+(mac '(our-dolist (x '(a b c)) (print x)))
+
+(mapc #'(lambda (x) (print x)) '(a b c))
+
+(let ((x nil)) t)
+
+(defmacro when-bind ((var expr) &body body)
+	`(let ((,var ,expr))
+		 (when ,var ,body)))
+
+(when-bind (input (get-user-input))
+	(process input))
