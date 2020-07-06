@@ -905,7 +905,7 @@ gexp
 (destructuring-bind (x (y) . z) '(a (b) c d)
 	(list x y z))
 
-(mac '(dolist (x '(a b c)) (print x)))
+(mac (dolist (x '(a b c)) (print x)))
 
 (dolist (x '(a b c)) (print x))
 
@@ -914,7 +914,7 @@ gexp
 		 (mapc #'(lambda (,var) ,@body) ,list)
 		 (let ((,var nil)) ,result)))
 
-(mac '(our-dolist (x '(a b c)) (print x)))
+(mac (our-dolist (x '(a b c)) (print x)))
 
 (mapc #'(lambda (x) (print x)) '(a b c))
 
@@ -926,3 +926,229 @@ gexp
 
 (when-bind (input (get-user-input))
 	(process input))
+
+(defmacro our-expander (name) `(get ,name 'expander))
+
+(mac (our-expander name))
+
+;; gensym
+(defmacro our-defmacro (name parms &body body)
+	(let ((g (gensym)))
+		`(progn
+			 (setf (our-expander ',name)
+				 #'(lambda (,g)
+					   (block ,name
+						   (destructuring-bind ,parms (cdr ,g)
+							   ,@body))))
+			 ',name)))
+
+(defun our-macroexpand-1 (expr)
+	(if (and (consp expr) (our-expander (car expr)))
+		(funcall (our-expander (car expr)) expr)
+		expr))
+
+(let ((op 'setq))
+	(defmacro our-setq (var val)
+		(list op var val)))
+
+(do ((w 3)
+		(x 1 (1+ x))
+		(y 2 (1+ y))
+		(z))
+	((> x 10) (princ z) y)
+	(princ x)
+	(princ y))
+
+(prog ((w 3) (x 1) (y 2) (z nil))
+	foo
+	(if (> x 10)
+		(return (progn (princ z) y)))
+	(princ x)
+	(princ y)
+	(psetq x (1+ x) y (1+ y))
+	(go foo))
+
+;; (2 2)
+(let ((a 1))
+	(setq a 2 b a)
+	(list a b))
+
+;; psetq: parallel setq
+;; (2 1)
+(let ((a 1))
+	(psetq a 2 b a)
+	(list a b))
+
+;; if we use setq instead of psetq, so do -> do*
+
+(defmacro our-do (bindforms (test &rest result) &body body)
+	(let ((label (gensym)))
+		`(prog ,(make-initforms bindforms)
+			 ,label
+			 (if ,test
+				 (return (progn ,@result)))
+			 ,@body
+			 (psetq ,@(make-stepforms bindforms))
+			 (go ,label))))
+
+(defun make-initforms (bindforms)
+	(mapcar #'(lambda (b)
+				  (if (consp b)
+					  (list (car b) (cadr b))
+					  (list b nil)))
+		bindforms))
+
+(defun make-stepforms (bindforms)
+	(mapcan #'(lambda (b)
+				  (if (and (consp b) (third b))
+					  (list (car b) (third b))
+					  nil))
+		bindforms))
+
+(defmacro our-and (&rest args)
+	(case (length args)
+		(0 t)
+		(1 (car args))
+		(t `(if ,(car args)
+				(our-and ,@(cdr args))))))
+
+(defmacro our-andb (&rest args)
+	(if (null args)
+		t
+		(labels ((expander (rest)
+					 (if (cdr rest)
+						 `(if ,(car rest)
+							  ,(expander (cdr rest)))
+						 (car rest))))
+			(expander args))))
+
+(mac (our-andb '(a b c)))
+
+(let ((args '(a b c d)))
+    (print (labels ((expander (rest)
+				  (if (cdr rest)
+					  `(if ,(car rest)
+						   ,(expander (cdr rest)))
+					  (car rest))))
+		 (expander args))))
+
+(defmacro our-test-and(&rest args)
+	(print args)
+	(labels ((expander (rest)
+				 (if (cdr rest)
+					 `(if ,(car rest)
+						  ,(expander (cdr rest)))
+					 (car rest))))
+		(expander args)))
+
+(our-test-and 'a 'b 'c 'd)
+
+;; (IF A
+;;     (IF B
+;;         (IF C
+;;             D)))
+
+(cdr '('(a b c)))
+
+;; 0
+(defmacro mac (x) `(1+ ,x))
+
+;; 1
+(setq fn (compile nil '(lambda (y) (mac y))))
+
+;; 2
+(defmacro mac (x) `(+ 1 ,x 100))
+
+;; 01: 2, 21: 102
+(funcall fn 1)
+
+;; so first, we must be define before call macro
+;; seconde, redefine a macro, we must be rebuild all method of called for the macro.
+
+(defun secound (x) (cadr x))
+
+(defmacro secound (x) `(cadr ,x))
+
+(defun noisy-secound (x)
+	(princ "Someone is taking a cadr!")
+	(cadr x))
+
+(defmacro noisy-second (x)
+	`(progn
+		 (princ "Someone is taking a cadr!")
+		 (cadr ,x)))
+
+(defun sum (&rest args)
+	(apply #'+ args))
+
+(defmacro sum (&rest args)
+	`(apply #'+ (list ,@args)))
+
+(defmacro sum (&rest args)
+	`(+ ,@args))
+
+(defun foo (x y z)
+	(list x (let ((x y))
+				(list x z))))
+
+(defmacro foo (x y z)
+	`(list ,x (let ((x ,y))
+				  (list x ,z))))
+
+(symbol-macrolet ((hi (progn (print "Howdy") 1)))
+	(+ hi 2))
+
+#|
+	Chapter 8.
+	When to use macros.
+|#
+
+(defun 1+ (x) (+ 1 x))
+
+(defmacro while (test &body body)
+	`(do ()
+		 ((not ,test))
+		 ,@body))
+
+;; (do ()
+;; 	((not <condition>))
+;; 	<body of code>)
+
+(defun move-objs (objs dx dy)
+	(multiple-value-bind (x0 y0 x1 y1) (bounds objs)
+		(dolist (o objs)
+			(incf (obj-x o) dx)
+			(incf (obj-y o) dy))
+		(multiple-value-bind (xa ya xb yb) (bounds objs)
+			(redraw (min x0 xa) (min y0 ya)
+				(max x1 xb) (max y1 yb)))))
+
+(defun scale-objs (objs factor)
+	(multiple-value-bind (x0 y0 x1 y1) (bounds objs)
+		(dolist (o objs)
+			(setf (obj-dx o) (* (obj-dx o) factor)
+				(obj-dy o) (* (obj-dy o) factor)))
+		(multiple-value-bind (xa ya xb yb) (bounds objs)
+			(redraw (min x0 xa) (min y0 ya)
+				(max x1 xb) (max y1 yb)))))
+
+(defmacro with-redraw ((var objs) &body body)
+	(let ((gob (gensym))
+			 (x0 (gensym)) (y0 (gensym))
+			 (x1 (gensym)) (y1 (gensym)))
+		`(let ((,gob ,objs))
+			 (multiple-value-bind (,x0 ,y0 ,x1 ,y1) (bounds ,gob)
+				 (dolist (,var ,gob) ,@body)
+				 (multiple-value-bind (xa ya xb yb) (bounds ,gob)
+					 (redraw (min ,x0 ,xa) (min ,y0 ya)
+						 (max ,x1 xb) (max ,y1 yb)))))))
+
+(defun move-objs (objs dx dy)
+	(with-redraw (o objs)
+		(incf (obj-x o) dx)
+		(incf (obj-y o) dy)))
+
+(defun scale-objs (objs factor)
+	(with-redraw (o objs)
+		(setf (obj-dx o) (* (obj-dx o) factor)
+			(obj-dy o) (* (obj-dy o) factor))))
