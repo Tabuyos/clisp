@@ -1152,3 +1152,22 @@ gexp
 	(with-redraw (o objs)
 		(setf (obj-dx o) (* (obj-dx o) factor)
 			(obj-dy o) (* (obj-dy o) factor))))
+
+#|
+	Chapter 9.
+	Variable capture.
+|#
+
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var))
+			 (limit ,stop))
+		 ((> ,var limit))
+		 ,@body))
+
+(for (x 1 5)
+	(princ x))
+
+(for (limit 1 5)
+	(princ x))
+
+(mac (for (limit 1 5) (print x)))
