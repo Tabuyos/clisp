@@ -1171,3 +1171,184 @@ gexp
 	(princ x))
 
 (mac (for (limit 1 5) (print x)))
+
+(let ((limit 5))
+	(for (i 1 10)
+		(when (> i limit)
+			(princ i))))
+
+(defvar w nil)
+
+(defmacro gripe (warning)
+	`(progn (setq w (nconc w (list ,warning)))
+		 nil))
+
+(defun sample-ratio (v w)
+	(let ((vn (length v)) (wn (length w)))
+		(if (or (< vn 2) (< wn 2))
+			(gripe "sample < 2")
+			(/ vn wn))))
+
+(let ((lst '(b)))
+	(sample-ratio nil lst)
+	lst)
+
+w
+
+(defmacro foo (x y)
+	`(/ (+ ,x 1) ,y))
+
+(foo (- 5 2) 6)
+
+(mac (foo (- 5 2) 6))
+
+(defmacro cap1 ()
+	'(+ x 1))
+
+(defvar x 1)
+
+;; 2
+(mac (cap1))
+
+(defmacro cap2 (var)
+	`(let ((x ...)
+			  (,var ...))
+		 ...))
+
+(defmacro cap3 (var)
+	`(let ((x ...))
+		 (let ((,var ...))
+			 ...)))
+
+(defmacro cap4 (var)
+	`(let ((,var ...))
+		 (let ((x ...))
+			 ...)))
+
+(defmacro safe1 (var)
+	`(progn (let ((x 1))
+				(print x))
+		 (let ((,var 1))
+			 (print ,var))))
+
+(defmacro cap5 (&body body)
+	`(let ((x ...))
+		 ,@body))
+
+(defmacro safe2 (expr)
+	`(let ((x ,expr))
+		 (cons x 1)))
+
+(defmacro safe3 (var &body body)
+	`(let ((,var ...))
+		 ,@body))
+
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var))
+			 (limit ,stop))
+		 ((> ,var limit))
+		 ,@body))
+
+(let ((limit 0))
+	(for (x 1 10)
+		(incf limit x))
+	limit)
+
+(mac (for (x 1 10) (incf limit x)))
+
+;; never stopping
+(for (x 1 10) (incf limit x))
+
+(let (( x 1)) (list x))
+
+;; wrong
+(defmacro pathological (&body body)
+	(let* ((syms (remove-if (complement #'symbolp)
+					 (flatten body)))
+			  (var (nth (random (length syms))
+					   syms)))
+		`(let ((,var 99))
+			 ,@body)))
+
+;; avoid capture with better names
+;; avoid capture by prior evaluation
+
+;; easy capture ex:
+(defmacro before (x y seq)
+	`(let ((seq ,seq))
+		 (< (position ,x seq)
+			 (position ,y seq))))
+
+;; simulate an capture example by use progn
+(before (progn (setq seq '(b a)) 'a) 'b '(a b)) ;; nil
+
+(mac (before (progn (setq seq '(b a)) 'a) 'b '(a b)))
+
+;; right ex:
+(defmacro before (x y seq)
+	`(let ((xval ,x) (yval ,y) (seq ,seq))
+		 (< (position xval seq)
+			 (position yval seq))))
+
+(before (progn (setq seq '(b a)) 'a) 'b '(a b)) ;; t
+
+(mac (before (progn (setq seq '(b a)) 'a) 'b '(a b)))
+
+;; vulnerable to capture
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var))
+			 (limit ,stop))
+		 ((> ,var limit))
+		 ,@body))
+
+;; a correct version
+(defmacro for ((var start stop) &body body)
+	`(do ((b #'(lambda (,var) ,@body))
+			 (count ,start (1+ count))
+			 (limit ,stop))
+		 ((> count limit))
+		 (funcall b count)))
+
+;; wrong version
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var))
+			 (xsf2jsh ,stop))
+		 ((> ,var xsf2jsh))
+		 ,@body))
+
+(gensym)
+
+*gensym-counter*
+
+(setq x (gensym))
+
+(setq *gensym-counter* 549 y (gensym))
+
+(eq x y)
+
+x
+
+y
+
+(format t "~A ~A" x y)
+
+;; vulnerable to capture
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var))
+			 (limit ,stop))
+		 ((> ,var limit))
+		 ,@body))
+
+;; a correct version
+(defmacro for ((var start stop) &body body)
+	(let ((gstop (gensym)))
+		`(do ((,var ,start (1+ ,var))
+				 (,gstop ,stop))
+			 ((> ,var ,gstop))
+			 ,@body)))
+
+#|
+	Chapter 10.
+	Other Macro Pitfalls.
+|#
+
