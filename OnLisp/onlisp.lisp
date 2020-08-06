@@ -1352,3 +1352,394 @@ y
 	Other Macro Pitfalls.
 |#
 
+;; a correct version
+(defmacro for ((var start stop) &body body)
+	(let ((gstop (gensym)))
+		`(do ((,var ,start (1+ ,var))
+				 (,gstop ,stop))
+			 ((> ,var ,gstop))
+			 ,@body)))
+
+;; subject to multiple evaluations
+(defmacro for ((var start stop) &body body)
+	`(do ((,var ,start (1+ ,var)))
+		 ((> ,var ,stop))
+		 ,@body))
+
+;; incorrect order of evaluation
+(defmacro for ((var start stop) &body body)
+	(let ((gstop (gensym)))
+		`(do ((,gstop ,stop)
+				 (,var ,start (1+ ,var)))
+			 ((> ,var ,gstop))
+			 ,@body)))
+
+(let ((x 2))
+	(for (i 1 (incf x))
+		(princ i)))
+
+(setq x 10)
+
+(+ (setq x 3) x)
+
+(* 2 3)
+
+(let ((x 1))
+	(for (i x (setq x 13))
+		(princ i)))
+
+(defmacro nil! (x)
+	(incf *nil!s*)
+	`(setf ,x nill))
+
+;; wrong
+(defmacro string-call (opstring &rest args)
+	`(,(intern opstring) ,@args))
+
+(defun our+ (x y) (+ x y))
+
+(string-call "OUR+" 2 3)
+
+;; The call to intern takes a string and returns the correspondingsymbol
+
+(defun et-al (&rest args)
+	(nconc args (list 'et 'al)))
+
+(et-al 'smith 'jones)
+
+(setq greats '(leonardo michelangelo))
+
+(apply #'et-al greats)
+
+greats
+
+(defmacro echo (&rest args)
+	`',(nconc args (list 'amen)))
+
+(defun foo () (echo x))
+
+(foo) ;; x amen
+
+(foo) ;; x amen
+
+(defmacro echo (&rest args)
+	`'(,@args amen))
+
+(foo)
+
+(defmacro crazy (expr) (nconc expr (list t)))
+
+(defun foo () (crazy (list)))
+
+(foo)
+
+(defun our-length (x)
+	(if (null x)
+		0
+		(1+ (our-length (cdr x)))))
+
+(our-length '(1 2 3 4))
+
+(defun our-length (x)
+	(do ((len 0 (1+ len))
+			(y x (cdr y)))
+		((null y) len)))
+
+(our-length '(1 2 3 4))
+
+#|
+	Chapter 11.
+	Classic Macros.
+|#
+
+;; use lambda to implementation let
+(defmacro our-let (binds &body body)
+	`((lambda ,(mapcar #'(lambda (x)
+							 (if (consp x) (car x) x))
+				   binds)
+		  ,@body)
+		 ,@(mapcar #'(lambda (x)
+						 (if (consp x) (cadr x) nil))
+			   binds)))
+
+(mac (our-let ((x 1) (y 2))
+		 (+ x y)))
+
+(defmacro when-bind ((var expr) &body body)
+	`(let ((,var ,expr))
+		 (when ,var
+			 ,@body)))
+
+(defmacro when-bind* (binds &body body)
+	(if (null binds)
+		`(progn ,@body)
+		`(let (,(car binds))
+			 (if ,(caar binds)
+				 (when-bind* ,(cdr binds) ,@body)))))
+
+(defmacro with-gensyms (syms &body body)
+	`(let ,(mapcar #'(lambda (s)
+						 `(,s (gensym)))
+			   syms)
+		 ,@body))
+
+(when-bind* ((x (find-if #'consp '(a (1 2) b)))
+				(y (find-if #'oddp x)))
+	(+ y 10))
+
+;; ex
+(defmacro with-redraw ((var objs) *body body)
+	(let ((gob (gensym))
+			 (x0 (gensym)) (y0 (gensym))
+			 (x1 (gensym)) (y1 (gensym)))
+		...))
+
+(let ((sun-place 'park) (rain0place 'library))
+	(if (sunny)
+		(visit sun-place)
+		(visit rain-place)))
+
+(defmacro condlet (clauses &body body)
+	(let ((bodfn (gensym))
+			 (vars (mapcar #'(lambda (v) (cons v (gensym)))
+					   (remove-duplicates
+						   (mapcar #'car (mappend #'cdr clauses))))))
+		`(labels ((,bodfn ,(mapcar #'car vars)
+					  ,@body))
+			 (cond ,@(mapcar #'(lambda (cl)
+								   (condlet-clause vars cl bodfn))
+						 clauses)))))
+
+(defun condlet-clause (vars cl bodfn)
+	`(,(car cl) (let ,(mapcar #'cdr vars)
+					(let ,(condlet-binds vars cl)
+						(,bodfn ,@(mapcar #'cdr vars))))))
+
+(defun condlet-binds (vars cl)
+	(mapcar #'(lambda (bindform)
+				  (if (consp bindform)
+					  (cons (cdr (assoc (car bindform) vars))
+						  (cdr bindform))))
+		(cdr cl)))
+
+(defun mappend (fn &rest lsts)
+	(apply #'append (apply #'mapcar fn lsts)))
+
+(condlet (((= 1 2) (x (princ 'a)) (y (princ 'b)))
+			 ((= 1 1) (y (princ 'c)) (x (princ 'd)))
+			 (t (x (princ 'e)) (z (princ 'f))))
+	(list x y z))
+
+(apply #'append '((apply #'mapcar #'1+ '((1 2 3)))))
+
+(with-open-file (s "dump" :direction :output)
+	(princ 99 s))
+
+(mac (with-open-file (s "dump" :direction :output)
+		 (princ 99 s)))
+
+(setq x 'a)
+
+(unwind-protect
+	(progn (princ "What error?")
+		(error "This error."))
+	(setq x 'b))
+
+x
+
+(let ((temp *db*))
+	(setq *db* db)
+	(lock *db*)
+	(prog1 (eval-query q)
+		(release *db*)
+		(setq *db* temp)))
+
+(with-db db
+	(eval-query q))
+
+;; implementation to with-db by macro
+(defmacro with-db (db &body body)
+	(let ((temp (gensym)))
+		`(let ((,temp *db*))
+			 (unwind-protect
+				 (progn
+					 (setq *db* ,db)
+					 (lock *db*)
+					 ,@body)
+				 (progn
+					 (release *db*)
+					 (setq *db* ,temp))))))
+
+;; implementation to with-db by macro and function
+(defmacro with-db (db &body body)
+	(let ((gbod (gensym)))
+		`(let ((,gbod #'(lambda () ,@body)))
+			 (declare (dynamic-extent ,gbod))
+			 (with-db-fn *db* ,db ,gbod))))
+
+(defun with-db-fn (old-db new-db body)
+	(unwind-protect
+		(progn
+			(setq *db* new-db)
+			(lock *db*)
+			(funcall body))
+		(progn
+			(release *db*)
+			(setq *db* old-db))))
+
+(if t
+	'phew
+	(/ 1 0))
+
+(while (not sick)
+	(if3 (cake-permitted)
+		(eat-cake)
+		(throw 'tantrum nil)
+		(plead-insistently)))
+
+(defmacro if3 (test t-case nil-case ?-case)
+	`(case ,test
+		 ((nil) ,nil-case)
+		 (? ,?-case)
+		 (t ,t-case)))
+
+;; numeric if
+(defmacro nif (expr pos zero neg)
+	(let ((g (gensym)))
+		`(let ((,g ,expr))
+			 (cond ((plusp ,g) ,pos)
+				 ((zerop ,g) ,zero)
+				 (t ,neg)))))
+
+(mapcar #'(lambda (x)
+			  (nif x 'p 'z 'n))
+	'(0 1 -1))
+
+(let ((x (foo)))
+	(or (eql x (bar)) (eql x (baz))))
+
+(member (foo) (list (bar) (baz)))
+
+;; the equivalent in expression
+(in (foo) (bar) (baz))
+
+(macroexpand '(in (foo) (bar) (baz)))
+
+(inq operator + - *)
+
+(in operator '+ '- '*)
+
+(defmacro in (obj &rest choices)
+	(let ((insym (gensym)))
+		`(let ((,insym ,obj))
+			 (or ,@(mapcar #'(lambda (c)) `(eql ,insym ,c))
+				 choices))))
+
+(defmacro inq (obj &rest args)
+	`(in ,obj ,@(mapcar #'(lambda (a)
+							  `',a)
+					args)))
+
+(defmacro in-if (fn &rest choices)
+	(let ((fnsym (gensym)))
+		`(let ((,fnsym ,fn))
+			 (or ,@(mapcar #'(lambda (c)
+								 `(funcall ,fnsym ,c))
+					   choices)))))
+
+(defmacro >case (expr &rest clauses)
+	(let ((g (gensym)))
+		`(let ((,g ,expr))
+			 (cond ,@(mapcar #'(lambda (cl) (>casex g cl))
+						 clauses)))))
+
+(defmacro >casex (g cl)
+	(let ((key (car cl)) (rest (cdr cl)))
+		(cond ((consp key) `((in ,g ,@key) ,@rest))
+			((inq key t otherwise) `(t ,@rest))
+			(t (error "bad >case clause")))))
+
+(member x (list 'a 'b) :test #'equal)
+
+(setq a 1 b 2)
+
+(in-if #'(lambda (y) (equal x y)) 'a 'b)
+
+(some #'oddp (list a b))
+
+(in-if #'oddp a b)
+
+(mac (case a ('a 1)))
+
+(defmacro forever (&body body)
+	`(do ()
+		 (nil)
+		 ,@body))
+
+(defmacro while (test &body body)
+	`(do ()
+		 ((not ,test))
+		 ,@body))
+
+(defmacro till (test &body body)
+	`(do ()
+		 (,test)
+		 ,@body))
+
+(defmacro for ((var start stop) &body body)
+	(let ((gstop (gensym)))
+		`(do ((,var ,start (1+ ,var))
+				 (,gstop ,stop))
+			 ((> ,var ,gstop))
+			 ,@body)))
+
+(setq y 12 x 21)
+
+y
+
+x
+
+(do-tuples/o (x y) `(a b c d)
+	(princ (list x y)))
+
+(defmacro do-tuples/o (parms source &body body)
+	(if parms
+		(let ((src (gensym)))
+			`(prog ((,src ,source))
+				 (mapc #'(lambda ,parms ,@boyd)
+					 ,@(map0-n #'(lambda (n)
+									 `(nthcdr ,n ,src))
+						   (- (length source)
+							   (length parms))))))))
+
+(defmacro to-tuples/c (parms source &body body)
+	(if parms
+		(with-gensyms (src rest bodfn)
+			(let ((len (length parms)))
+				`(let ((,src ,source))
+					 (when (nthcdr ,(1- len) ,src)
+						 (labels ((,bodfn ,parms ,@body))
+							 (do ((,rest ,src (cdr ,rest)))
+								 ((not (nthcdr ,(1- len) ,rest))
+									 ,@(mapcar #'(lambda (args)
+													 `(,bodfn @args))
+										   (dt-args len rest src))
+									 nil)
+								 (,bodfn @(map1-n #'(lambda (n)
+														`(nth ,(1- n)
+															 ,rest))
+											  len))))))))))
+
+(defun dt-args (len rest src)
+	(map0-n #'(lambda (m)
+				  (map1-n #'(lambda (n)
+								(let ((x (+ m n)))
+									(if (>= x len)
+										`(nth ,(- x len) ,src)
+										`(nth ,(1- x) ,rest))))
+					  len))
+		(- len 2)))
+
+(do-tuples/c (x y) '(a b c d)
+	(princ (list x y)))
+
