@@ -340,7 +340,7 @@ lst
 (defun conc1 (lst obj)
 	(nconc lst (list obj)))
 
-(defun mklist (object)
+(defun mklist (obj)
 	(if (listp obj) obj (list obj)))
 
 (defun longer (x y)
@@ -1742,4 +1742,371 @@ x
 
 (do-tuples/c (x y) '(a b c d)
 	(princ (list x y)))
+
+(mvdo* ((x 1 (1+ x))
+		   ((y z) (values 0 0) (values z x)))
+	((> x 5) (list x y z))
+	(princ (list x y z)))
+
+(defmacro mvdo* (parm-cl test-cl &body body)
+	(mvdo-gen parm-cl parm-cl test-cl body))
+
+(defun mvdo-gen (binds rebinds test body)
+	(if (null binds)
+		(let ((label (gensym)))
+			`(prog nil
+				 ,label
+				 (if ,(car test)
+					 (return (progn ,@(cdr test))))
+				 ,@body
+				 ,@(mvdo-rebind-gen rebinds)
+				 (go ,label)))
+		(let ((rec (mvdo-gen (cdr binds) rebinds test body)))
+			(let ((var/s (caar binds)) (expr (cadar binds)))
+				(if (atom var/s)
+					`(let ((,var/s ,expr)) ,rec)
+					`(multiple-value-bind ,var/s ,expr ,rec))))))
+
+(defun mvdo-rebind-gen (rebinds)
+	(cond ((null rebinds) nil)
+		((< (length (car rebinds)) 3)
+			(mvdo-rebind-gen (cdr rebinds)))
+		(t
+			(cons (list (if (atom (caar rebinds))
+							'setq
+							'multiple-value-setq)
+					  (caar rebinds)
+					  (third (car rebinds)))
+				(mvdo-rebind-gen (cdr rebinds))))))
+
+(mvdo ((x 1 (1+ x))
+		  ((y z) (values 0 0) (values z x)))
+	((> x 5) (list x y z))
+	(princ (list x y z)))
+
+(let ((w 0) (x 1) (y 2) (z 3))
+	(mvpsetq (w x) (values 'a 'b) (y z) (values w x))
+	(list w x y z))
+
+(shuffle '(a b c) '(1 2 3 4))
+
+(defun fnif (test then &optional else)
+	(if test
+		(funcall then)
+		(if else (funcall else))))
+
+(if (rich) (go-sailing) (rob-bank))
+
+;; equal
+(fnif (righ)
+	#'(lambda () (go-sailing))
+	#'(lambda () (rob-bank)))
+
+(defmacro mvpsetq (&rest args)
+	(let* ((pairs (group args 2))
+			  (syms (mapcar #'(lambda (p)
+								  (mapcar #'(lambda (x) (gensym))
+									  (mklist (car p))))
+						pairs)))
+		(labels ((rec (ps ss)
+					 (if (null ps)
+						 `(setq
+							  ,@(mapcan #'(lambda (p s)
+											  (shuffle (mklist (car p))
+												  s))
+									pairs syms))
+						 (let ((body (rec (cdr ps) (cdr ss))))
+							 (let ((var/s (caar ps))
+									  (expr (cadar ps)))
+								 (if (consp var/s)
+									 `(multiple-value-bind ,(car ss) ,expr ,body)
+									 `(let ((,@(car ss) ,expr))
+										  ,body)))))))
+			(rec pairs syms))))
+
+(defun shuffle (x y)
+	(cond ((null x) y)
+		((null y) x)
+		(t (list* (car x) (car y)
+			   (shuffle (cdr x) (cdr y))))))
+
+(dolist (b bananas)
+	(peel b)
+	(eat b))
+
+(mapc #'(lambda (b)
+			(peel b)
+			(eat b))
+	bananas)
+
+(defun forever (fn)
+	(do ()
+		(nil)
+		(funcall fn)))
+
+(defmacro mvdo (binds (test &rest result) &body body)
+	(let ((label (gensym))
+			 (temps (mapcar #'(lambda (b)
+								  (if (listp (car b))
+									  (mapcar #'(lambda (x)
+													(gensym))
+										  (car b))
+									  (gensym)))
+						binds)))
+			 `(let ,(mappend #'mklist temps)
+				  (mvpsetq ,@(mapcan #'(lambda (b var)
+										   (list var (cadr b)))
+								 binds temps))
+				  (prog ,(mapcar #'(lambda (b var) (list b var))
+							 (mappend #'mklist (mapcar #'car binds))
+							 (mappend #'mklist temps))
+					  ,label
+					  (if ,test
+						  (return (progn ,@result)))
+					  ,@body
+					  (mvpsetq ,@(mapcan #'(lambda (b)
+											   (if (third b)
+												   (list (car b)
+													   (third b))))
+									 binds))
+					  (go ,label)))))
+
+(mvdo ((x 1 (1+ x))
+		  ((y z) (values 0 0) (values z x)))
+	((> x 5) (list x y z))
+	(princ (list x y z)))
+
+#|
+	Chapter 12.
+	Generalizes Variables.
+|#
+
+(setf lst '(a b c))
+
+(setf (car lst) 480)
+
+lst
+
+(progn (rplaca lst 480) 480)
+
+(defmacro toggle (obj)
+	`(setf ,obj (not ,obj)))
+
+(let ((lst '(a b c)))
+	(toggle (car lst)) lst)
+
+(defvar *friends* (make-hash-table))
+
+(setf (gethash 'mary *friends*) (make-hash-table))
+
+(setf (gethash 'john (gethash 'mary *friends*)) t)
+
+(gethash 'mary *friends*)
+
+(setf (gethash x (gethash y *friends*))
+	(not (gethash x (gethash y *friends*))))
+
+(defmacro friend-of (p q)
+	`(gethash ,p (gethash ,q *friends*)))
+
+(toggle (friend-of x y))
+
+;; wrong
+(defmacro toggle (obj)
+	`(setf ,obj (not ,obj)))
+
+(setq i 2)
+
+(toggle (nth (incf i) lst))
+
+(let ((lst '(t nil t))
+		 (i -1))
+	(toggle (nth (incf i) lst))
+	lst)
+
+(define-modify-macro toggle () not)
+
+(let ((lst '(t nil t))
+		 (i -1))
+	(toggle (nth (incf i) lst))
+	lst)
+
+(defmacro allf (val &rest args)
+	(with-gensyms (gval)
+		`(let ((,gval ,val))
+			 (setf ,@(mapcan #'(lambda (a) (list a gval))
+						 args)))))
+
+(defmacro nilf (&rest args) `(allf nil ,@args))
+
+(defmacro tf (&rest args) `(allf t ,@args))
+
+(defmacro toggle (&rest args)
+	`(progn
+		 ,@(mapcar #'(lambda (a) `(toggle2 ,a))
+			   args)))
+
+(define-modify-macro toggle2 () not)
+
+(setf x 1 y 2)
+
+(setf x nil y nil z nil)
+
+(nilf x y z)
+
+(define-modify-macro concf (obj) nconc)
+
+(defun conc1f/function (place obj)
+	(conc place (list obj)))
+
+(define-modify-macro conc1f (obj) con1f/fucntion)
+
+(defun concnew/function (place obj &rest args)
+	(unless (apply #'member obj place args)
+		(conc place (list obj))))
+
+(define-modify-macro concnew (obj &rest args)
+	concnew/function)
+
+(setq x (nconc x y))
+
+(define-modify-macro conc1f (obj) conc1)
+
+;; appen element in tail to construct list, you should use push and nreverse in finally
+;; handle data in head than better in foot tail
+
+(incf x y)
+
+x
+
+(setf (obj-dx o) (* (obj-dx o) factor))
+
+(_f * (obj-dx o) factor)
+
+;; wrong
+(defmacro _f (op place &rest args)
+	`(setf ,place (,op ,place ,@args)))
+
+(incf (aref a (incf i)))
+
+(get-setf-expansion '(aref a (incf i)))
+
+(let* ((#:g4 af
+		   #:g5 (incf i))))
+
+;; a corret version
+(defmacro _f (op place &rest args)
+	(multiple-value-bind (vars forms var set access)
+		(get-setf-expansion place)
+		`(let* (,@(mapcar #'list vars forms)
+				   (,(car var) (,op ,access ,@args)))
+			 ,set)))
+
+(defmethod pull (obj place &rest args)
+	(multiple-value-bind (vars forms var set access)
+		(get-setf-expansion place)
+		(let ((g (gensym)))
+			`(let* ((,g ,obj)
+						,@(mapcar #'list vars forms)
+						(,(car var) (delte ,g ,access ,@args)))
+					   ,set))))
+(defmacro pull-if (test place &rest args)
+	(multiple-value-bind (vars forms var set access)
+		(get-setf-expansion place)
+		(let ((g (gensym)))
+			`(let* ((,g ,test)
+				,@(mapcar #'list vars forms)
+				(,(car var) (delete-if ,g ,access ,@args)))
+				 ,set))))
+
+(defmacro popn (n place)
+	(multiple-value-bind (vars forms var set access)
+		(get-setf-expansion place)
+		(with-gensyms (gen glst)
+			`(let* ((,gn nf
+						,@(mapcar #'list vars forms)
+						(,glst ,access)
+						(,(car var) (nthcdr ,gn ,glst)))
+					   (prog1 (subseq ,glst 0 ,gn)
+						   ,set))))))
+
+(_f memoize (symbol-function 'foo))
+
+(defmacro conc1f (lst obj)
+	`(_f nconc ,lst (list ,obj)))
+
+(setq x '(1 2 (a b) 3))
+
+(pull 2 x)
+
+(pull '(a b) x :test #'equal)
+
+(defmacro pull (obj seq &rest args)
+	`(setf ,seq (delete ,obj ,seq ,@args)))
+
+(define-modify-macro pull (obj &rest args)
+	(lambda (seq obj &rest args)
+		(apply #'delete obj seq args)))
+
+(let ((lst '(1 2 3 4 5 6)))
+	(pull-if #'oddp lst)
+	lst)
+
+(setq x '(a b c d e f))
+
+(popn 3 x)
+
+(defmacro sortf (op &rest places)
+	(let* ((meths (mapcar #'(lambda (p)
+								(multiple-value-list
+									(get-setf-expansion p)))
+					  places))
+			  (temps (apply #'append (mapcar #'third meths))))
+		`(let* ,(mapcar #'list
+					(mapcan #'(lambda (m)
+								  (append (first m)
+									  (third m)))
+						meths)
+					(mapcan #'(lambda (m)
+								  (append (second m)
+								  (list (fifth m))))
+					meths))
+		,@(mapcon #'(lambda (rest)
+						(mapcar
+							#'(lambda (arg)
+								  `(unless (,op ,(car rest) ,arg)
+									   (rotated ,(car rest) ,arg)))
+							(cdr rest)))
+			  temps)
+			 ,@(mapcar #'fourth meths))))
+
+(setq x 1 y 2 z 3)
+
+(sortf > x y z)
+
+(defsetf symbol-value set)
+
+(defsetf our-car (lst) (new-car)
+	`(progn (rplaca ,lst ,new-car)
+		 ,new-car))
+
+(defun (setf car) (new-car lst)
+	(rplaca lst new-car)
+	new-car)
+
+(defvar *cache* (make-hash-table))
+
+(defun retrieve (key)
+	(multiple-value-bind (x y) (gethash key *cache*)
+		(if y
+			(values x y)
+			(cdr (assoc key *world*)))))
+
+(defsetf retrieve (eky) (val)
+	`(setf (gethash ,key *cache*) ,val))
+
+#|
+	Chapter 13.
+	Computation at Compile-Time.
+|#
 
