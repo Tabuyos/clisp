@@ -2110,3 +2110,232 @@ x
 	Computation at Compile-Time.
 |#
 
+(defun avg (&rest args)
+	(/ (apply #'+ args) (length args)))
+
+(defmacro avg (&rest args)
+	`(/ (+ ,@args) ,(length args)))
+
+(defun most-of (&rest args)
+	(let ((all 0)
+			 (hits 0))
+		(dolist (a args)
+			(incf all)
+			(if a (incf hits)))
+		(> hits (/ all 2))))
+
+(defmacro most-of (&rest args)
+	(let ((need (floor (/ (length args) 2)))
+			 (hits (gensym)))
+		`(let ((,hits 0))
+			 (or ,@(mcapcar #'(lambda (a)
+								  `(and ,a (> (incf ,hits) ,need)))
+					   args)))))
+
+(defun nthmost (n lst)
+	(nth n (sort (copy-list lst) #'>)))
+
+(defmacro nthmost (n lst)
+	(if (and (integerp n) (< n 20))
+		(with-gensyms (glst gi)
+		(let ((syms (map0-n #'(lambda (x) (gensym)) n)))
+			`(let ((,glst ,lst))
+				 (unless (< (length ,glst) ,(1+ n))
+					 ,@(gen-start glst syms)
+					 (dolist (,gi ,glst)
+						 ,(nthmost-gen gi syms t))
+					 ,(car (last syms))))))
+		`(nth ,n (sort (copy-list ,lst) #'>))))
+
+(defun gen-start (glst syms)
+	(reverse
+		(maplist #'(lambda (syms)
+					   (let ((var (gensym)))
+						   `(let ((,var (pop ,glst)))
+								,(nthmost-gen var (reverse syms)))))
+			(reverse syms))))
+
+(defun nthmost-gen (var vars &optional long?)
+	(if (null vars)
+		nil
+		(let ((else (nthmost-gen var (cdr vars) long?)))
+			(if (and (not long?) (null else))
+				`(setq ,(car vars) ,var)
+				`(if (> ,var ,(car vars))
+					 (setq ,@(mapcan #'list
+								 (reverse vars)
+								 (cdr (reverse vars)))
+						 ,(car vars) ,var)
+					 ,else)))))
+
+(nthmost 2 '(2 6 1 5 3 4))
+
+#|
+	Chapter 14.
+	Anaphoric Macros.
+|#
+
+(let ((result (big-long-calculation)))
+	(if result
+		(foo result)))
+
+(if (big-long-calculation)
+	(foo it))
+
+;; anaphor is expression of somethine in nature languages
+
+(defmacro aif (test-form then-form &optional else-form)
+	`(let ((if ,test-form))
+		 (if it ,then-form ,else-form)))
+
+(aif (big-long-calculation)
+	(foo it))
+
+(let ((it (big -long-calculation)))
+	(if it (foo it) nil))
+
+(find-if #'oddp '(2 4 6))				;; return nil
+
+(find-if #'null '(2 nil 6))				;; we can't sure nil is return or findin
+
+(setf edible (make-hash-table)
+	(gethash 'olive-oil edible) t
+	(gethash 'motor-oil edible) nil)
+
+(gethash 'motor-oil edible)
+
+(defun edible? (x)
+	(multiple-value-bind (val found?) (gethash x edible)
+		(if found?
+			(if val 'yes 'no)
+			'maybe)))
+
+(mapcar #'edible? '(motor-oil olive-oil iguana))
+
+#|
+	Chapter 15.
+	Macros Returning Functions.
+|#
+
+(defmacro fn (expr) `#',(rbuild expr))
+
+(defun rbuild (expr)
+	(if (or (atom expr) (eq (car expr) 'lambda))
+		expr
+		(if (eq (car expr) ''compose)
+			(build-compose (cdr expr))
+			(build-call (car expr) (cdr expr)))))
+
+(defun build-call (op fns)
+	(let((g (gensym)))
+		`(lambda (,g)
+			 (,op ,@(mapcar #'(lambda (f)
+								  `(,(rbuild f) ,g))
+						fns)))))
+
+(defun build-compose (fns)
+	(let ((g (gensym)))
+		`(lambda (,g)
+			 ,(labels ((rec (fns)
+						   (if fns
+							   `(,(rbuild (car fns))
+									,(rec (cdr fns)))
+							   g)))
+				  (rec fns)))))
+
+(defun our-every (fn lst)
+	(if (nul lst)
+		t
+		(and (funcall fn (car lst))
+			(out-every fn (cdr lst)))))
+
+(lrec #'(lambda (x f) (and (oddp x) (funcall f)))
+	t)
+
+(alrec (and (oodp it) rec) t)
+
+(funcall (alrec (and (oddp it) rec) t) '(1 3 5))
+
+(defmacro atrec (rec &optioncal (base 'it))
+	"cltl2 version"
+	(let ((lfn (gensym)) (rfn (gensym)))
+		`(trec #'(lambda (it ,lfn ,rfn)
+					 (symbol-macrolet ((left (funcall ,lfn))
+										  (right (funcall ,rfn)))
+						 ,rec))
+			 #'(lambda (it) ,base))))
+
+(defmacro atrec (rec &optional (base 'it))
+	"cltl1 version"
+	(let ((lfn (gensym)) (rfn (gensym)))
+			 `(trec #'(lambda (it ,lfn ,rfn)
+						  (labels ((left () (funcall ,lfn))
+									  (right () (funcall ,rfn)))
+							  ,rec))
+				  #'(lambda (it) ,base))))
+
+(defmacro on-trees (rec base &rest trees)
+	`(funcall (atrec ,rec ,base) ,@trees))
+
+(defun our-copy-tree (tree)
+	(on-trees (cons left right) it tree))
+
+(defun count-leaves (tree)
+	(ontrees (+ left (or right 1)) 1 tree))
+
+(defun flatten (tree)
+	(on-trees (nconc left right) (mklist it) tree))
+
+
+(defun refind-if (fn tree)
+	(ontrees (or left right)
+		(and (funcall fn it) it)
+		tree))
+
+(let (( x 2))
+	(setq d (delay (1+ x))))
+
+(force 'a)
+
+(defconstant unforced (gensym))
+
+;; define a struct for delay, and it have two properties: forced closure
+(defstruct delay forced closure)
+
+(defmacro delay (expr)
+	(let ((self (gensym)))
+		`(let ((,self (make-delay :forced unforced)))
+			 (setf (delay-closure ,self)
+				 #'(lambda ()
+					   (setf (delay-forced ,self) ,expr)))
+			 ,self)))
+
+(defun force (x)
+	(if (delay-p x)
+		(if (eq (delay-forced x) unforced)
+			(funcall (delay-closure x))
+			(delay-forced x))
+		x))
+
+(setq d 2)
+
+(force d)
+
+(sort lst #'(lambda (x y) (> (force x) (force y))))
+
+#|
+	Chapter 16.
+	Macro-Defining Macros
+|#
+
+(let ((a (car x)) (b (cdr x))) ...)
+
+(destructuring-bind (a . b) x ...)
+
+;; so we can do it
+(defmacro dbing (&rest args)
+	`(destructuring-bind ,@args))
+
+(defmacro mvbind (&rest args)
+	`(multiple-value-bind ,@args))
+
