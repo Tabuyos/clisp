@@ -2339,3 +2339,176 @@ x
 (defmacro mvbind (&rest args)
 	`(multiple-value-bind ,@args))
 
+(abbrev mvbind multiple-value-bind)
+
+(defmacro abbrev (short long)
+	`(defmacro ,short (&rest args)
+		 `(,',long ,@args)))
+
+(defmacro abbrevs (&rest names)
+	`(progn
+		 ,@(mapcar #'(lambda (pair)
+						 `(abbrev ,@pair))
+			   (group names 2))))
+
+(defmacro mvbind (&rest args)
+	`(multiple-value-bind ,@args))
+
+(defmacro mvbind (&rest args)
+	(let ((name 'multiple-value-bind))
+		`(,name ,@args)))
+
+`(defmacro ,short (&rest args)
+	 (let ((name ',long))
+		 `(,name ,@args)))
+
+`(defmacro ,short (&rest args)
+	 `(,',long ,@args))
+
+(setf (get o p) v)
+
+(setf (get 'ball1 'color) 'red)
+
+(defmacro color (obj)
+	`(get ,obj 'color))
+
+(color 'ball1)
+
+(setf (color 'ball1) 'green)
+
+(defmacro weight (obj)
+	`(get ,obj 'weight))
+
+(defmacro propmacro (propname)
+	`(defmacro ,propname (obj)
+		 `(get ,obj ',',propname)))
+
+(defmacro propmacros (&rest props)
+	`(progn
+		 ,@(mapcar #'(lambda (p) `(propmacro ,p)
+						 props))))
+
+(propmacro color)
+
+(defmacro color (obj)
+	`(get ,obj 'color))
+
+(defmacro color (obj)
+	(let ((p 'color))
+		`(get ,obj ',p)))
+
+`(defmacro ,propname (obj)
+	 (let ((p ',propname))
+		 `(get ,obj ',p)))
+
+`(defmacro ,propname (obj)
+	 `(get ,obj ',',propname))
+
+(let ((res (complicated-query)))
+	(if res
+		(foo res)))
+
+(aif (complicated-query)
+	(foo it))
+
+(let ((o (owner x)))
+	(and o (let ((a (address o)))
+			   (and a (city a)))))
+
+(aand (owner x) (address it) (city it))
+
+(defun mass-cost (menu-price)
+	(a+ menu-price (* it .05) (* it 3)))
+
+(mass-cost 7.95)
+
+(defmacro a+ (&rest args)
+	(a+expand args nil))
+
+(defun a+expand (args syms)
+	(if args
+		(let ((sym (gensym)))
+			`(let* ((,sym ,(car args))
+					   (it ,sym))
+				 ,(a+expand (cdr args)
+					  (append syms (list sym)))))
+		`(+ ,@syms)))
+
+(defmacro alist (&rest args)
+	(alist-expand args nil))
+
+(defun alist-expand (args syms)
+	(if args
+		(let ((sym (gensym)))
+			`(let* ((,sym ,(car args))
+					   (it ,sym))
+				 ,(alist-expand (cdr args)
+					  (append syms (list sym)))))
+		`(list ,@syms)))
+
+(a+ menu-price (* it .05) (* it 3))
+
+(alist 1 (+ 2 it) (+ 2 it))
+
+(defmacro a+ (&rest args)
+	(anaphex args '(+)))
+
+(defmacro defanaph (name &optional calls)
+	(let ((calls (or calls (pop-symbol name))))
+		`(defmacro ,name (&rest args)
+			 (anaphex args (list ',calls)))))
+
+(defun anaphex (args expr)
+	(if args
+		(let ((sym (gensym)))
+			`(let* ((,sym ,(car args))
+					   (it ,sym))
+				 ,(anaphex (cdr args)
+					  (append expr (list sym)))))
+		expr))
+
+(defun pop-symbol (sym)
+	(intern (subseq (symbol-name sym) 1)))
+
+(defun anaphex2 (op args)
+	`(let ((it ,(car args)))
+		 (,op it ,@(cdr args))))
+
+(defmacro aif (&rest args)
+	(anaphex2 'if args))
+
+(defun anaphex3 (op args)
+	`(_f (lambda (it) (,op it ,@(cdr args))) ,(car args)))
+
+(defmacro asetf (&rest args)
+	(anaphex3 '(lambda (x y) (declare (ignore x)) y) args))
+
+(defmacro defanaph (name &key calls (rule :all))
+	(let* ((opname (or calls (popsymbol name)))
+			  (body (case rule
+						(:all `(anaphex1 args '(,opbname)))
+						(:first `(anaphex2 ',opname args))
+						(:place `(anaphex3 ',opname args)))))
+		`(defmacro ,name (&rest args)
+			 ,body)))
+
+(defun ananphex1 (args call)
+	(if args
+		(let ((sym (gensym)))
+			`(let* ((,sym ,(car args))
+					   (it ,sym))
+				 ,(anaphex1 (cdr args)
+					  (append call (list sym)))))
+		call))
+
+(defun ananphex2 (op args)
+	`(let ((it ,(car args))) (,op it ,@(cdr args))))
+
+(defun ananphex3 (op args)
+	`(_f (lambda (it) (,op it ,@(cdr args))) ,(car args)))
+
+(defmacro incf (place &optional (val 1))
+	`(asetf ,place (+ it ,val)))
+
+(defmacro pull (obj place &rest args)
+	`(asetf ,place (delete ,obj it ,@args)))
