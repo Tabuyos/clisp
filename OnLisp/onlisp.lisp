@@ -2847,3 +2847,194 @@ x
 
 (if-match (?x 'a) seq (print ?x) nil)
 
+#|
+	Chapter 19.
+	A Query Compiler.
+|#
+
+#|
+		<Nightflight>
+ladies and gentlemen
+there is good service on all underground lines
+im 35 hours, two trins and two planes
+and if one more person looks through me i
+it could be sweet release, but i dont want to cry, not here
+oh, ladies and gentlemen
+there is good service on all undergound lines
+im 35 hours, two tains and two planes
+and if oen more person looks through me i
+it could be sweet release, but i dont want to cry, not here
+oh ladies and gentlemen
+keep your luggage with you at all times
+im 35 hours and 3 bad movies away
+and if one more person coughs on me
+im gonna punch them in the face
+well on not really, ill just hold my breath like always
+so long so far away
+so long so far away
+ladies and gentlemen, mind the gap
+between what i say and how i act
+im 36 bad thoughts and 3 glad thoughts
+i wish i wish i wish i wasnt traveling along the worst part is
+i cant leave myself at home
+so long so far away
+so long so far away
+i know what i want and i know when i want it, i want it now
+|#
+
+(defun make-db (&optional (size 100))
+	(make-hash-table :size size))
+
+(defvar *default-db* (make-db))
+
+(defun clear-db (&optional (db *default-db*))
+	(clrhash db))
+
+(defmacro db-query (key &optional (db *default-db*))
+	`(gethash ,key ,db))
+
+(defun db-push (key val &optional (db *default-db*))
+	(push val (db-query key db)))
+
+(defmacro fact (pred &rest args)
+	`(progn (db-push ',pred ',args)
+		 ',args))
+
+(fact painter reynolds joshua english)
+
+(fact painter canale antonio venetian)
+
+(db-query 'painter)
+
+(and (painter ?x ?y ?z)
+	(dates ?x 1697 ?w))
+
+(lookup 'painter '(?x ?y english))
+
+(interpret-query '(and (painter ?x ?y ?z)
+					  (dates ?x 1697 ?w)))
+
+(defmacro with-answer (query &body body)
+	(let ((binds (gensym)))
+		`(dolist (,binds (interpret-query ',query))
+			 (let ,(mapcar #'(lambda (v)
+								 `(,v (binding ',v ,binds)))
+					   (vars-in query #'atom))
+				 ,@body))))
+
+(defun interpret-query (expr &optional binds)
+	(case (car expr)
+		(and (interpret-and (reverse (cdr expr)) binds))
+		(or (interpret-or (cdr expr) binds))
+		(not (interpret-not (cadr expr) binds))
+		(t (lookup (car expr) (cdr expr) binds)))) 
+
+(defun interpret-and (clauses binds)
+	(if (null clauses)
+		(list binds)
+		(mapcar #'(lambda(b)
+					  (interpret-query (car clauses) b))
+			(interpret-and (cdr clauses) binds))))
+
+(defun interpret-or (clauses binds)
+	(mapcan #'(lambda (c)
+				  (interpret-query c binds))
+		clauses))
+
+(defun interpret-not (clause binds)
+	(if (interpret-query clause binds)
+		nil
+		(list bidns)))
+
+(defun lookup (pred args &optional binds)
+	(mapcan #'(lambda (x)
+				  (aif2 (match x args binds) (list it)))
+		(db-query pred)))
+
+(clear-db)
+
+(fact painter hogarth william english)
+(fact painter canale antonio venetian)
+(fact painter reynolds joshua english)
+
+(fact dates hogarth 1697 1772)
+(fact dates canale 1697 1768)
+(fact dates reynolds 1723 1792)
+
+(db-query 'painter)
+
+(with-answer (painter hogarth ?x ?y)
+	(princ (list ?x ?y)))
+
+(with-answer (and (painter ?x _ _)
+				 (dates ?x 1697 _))
+	(princ (list ?x)))
+
+(not (painter ?x ?y ?z))
+
+(defmacro with-answer (query &body body)
+	`(with-gensyms ,(vars-in query #'simple?)
+		 ,(compile-query query `(progn ,@body))))
+
+(defun compile-query (q body)
+	(case (car q)
+		(and (compile-and (cdr q) body))
+		(or (compile-or (cdr q) body))
+		(not (compile-not (cadr q) body))
+		(lisp `(if ,(cadr q) ,body))
+		(t (compile-simple q body))))
+
+(defun compile-simple (q body)
+	(let ((fact (gensym)))
+		`(dolist (,fact (db-query ',(car q)))
+			 (pat-match ,(cdr q) ,fact ,body nil))))
+
+(defun compile-and (clauses body)
+	(if (null clauses)
+		body
+		(compile-query (car clauses)
+			(compile-and (cdr clauses) body))))
+
+(defun compile-or (clauses body)
+	(if (null clauses)
+		nil
+		(let ((gbod (gensym))
+				 (vars (vars-in body #'simple?)))
+			`(labels ((,gbod ,vars ,body))
+				 ,@(mapcar #'(lambda (cl)
+								 (compile-query cl `(,gbod ,@vars)))
+					   clauses)))))
+
+(defun compile-not (q body)
+	(let ((tag (gensym)))
+		`(if (block ,tag
+				 ,(compile-query q `(return-from ,tag nil))
+				 t)
+			 ,body)))
+
+(with-answer (painter ?x ?y ?z)
+	(format t "~A ~A is a painter. ~%" ?y ?x))
+
+#|
+	Chapter 20.
+	Continuations.
+|#
+
+(define (f1 w)
+	(let ((y (f2 w)))
+		(if (integer? y) (list 'a y) 'b)))
+
+;; common lisp
+(let ((f #'(lambda (x) (1+ x))))
+	(funcall f 2))
+;; scheme
+(let ((f (lambda (x) (1+ x))))
+	(f 2))
+
+;; common lisp
+(defun foo (x) (1+ x))
+;; shceme first
+(define foo (lambda (x) (1+ x)))
+;; scheme second
+(define (foo x) (1+ x))
+

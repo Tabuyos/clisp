@@ -21,4 +21,6 @@ mapcar 将后面的 list 作用到 第一个参数(即需要作用的函数) 后
 关于lisp中的读取宏, 目前还有许多的不了解
 
 line 2605 需要仔细阅读
+
+在 common lisp 中, 一个符号的symbol-value和symbol-function是不同的
 |#
