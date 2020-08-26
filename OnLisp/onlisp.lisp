@@ -3038,3 +3038,487 @@ i know what i want and i know when i want it, i want it now
 ;; scheme second
 (define (foo x) (1+ x))
 
+(call-with-current-continuation
+	(lambda (cc)
+		...))
+
+(define frozen)
+
+(append '(the call/cc returned)
+	(list (call-with-current-continuation
+			  (lambda (cc)
+				  (set! frozen cc)
+				  'a))))
+
+(setq t1 '(a (b (d h)) (c e (f i) g))
+	t2 '(1 (2 (3 6 7) 4 5)))
+
+(defvar *actual-cont* #'values)
+
+(define-symbol-macro *cont*
+	*actual-cont*)
+
+(defmacro =lambda (parms &body body)
+	`#'(lambda (*cont* ,@parms) ,@body))
+
+(defmacro =defun (name parms &body body)
+	(let ((f (intern (concatenate 'string "=" (symbol-name name)))))
+		`(progn
+			 (defmacro ,name ,parms
+				 `(,',f *cont* ,,@parms))
+			 (defun ,f (*cont* ,@parms) ,@body))))
+
+(defmacro =bind (parms expr &body body)
+	`(let ((*cont* #'(lambda ,parms ,@body))) ,expr))
+
+(defmacro =values (&rest retvals)
+	`(funcall *cont* ,@retvals))
+
+
+(defmacro =apply (fn &rest args)
+	`(apply ,fn *cont* ,@args))
+
+(defmacro =funcall (fn &rest args)
+	`(funcall ,fn *cont* ,@args))
+
+#|
+	Chapter 21.
+	Multiple Processes.
+|#
+
+(defstruct proc pri state wait)
+
+(proclaim '(special *procs* *proc*))
+
+(defvar *halt* (gensym))
+
+(defvar *default-proc*
+	(make-proc :state #'(lambda (x)
+							(format t "~%>> ")
+							(princ (eval (read)))
+							(pick-process))))
+
+(defmacro fork (expr pri)
+	`(prog1 ',expr
+		 (push (make-proc
+				   :state #'(lambda (,(gensym))
+								,expr
+								(pick-process))
+				   :pri ,pri)
+			 *procs*)))
+
+(defmacro program (name args &body body)
+	`(=defun ,name ,args
+		 (setq *procs* nil)
+		 ,@body
+		 (catch *halt* (loop (pick-process)))))
+
+(=defun foo (x)
+	(format t "Foo was called with ~A. ~%" x)
+	(=values (1+ x)))
+
+(fork (foo 2) 25)
+
+(program two-foos (a b)
+	(fork (foo a) 99)
+	(fork (foo b) 99))
+
+#|
+	Chapter 22-25.
+|#
+
+;; ATN: Augmented Transition Network
+
+(defnode s
+	(cat noun s2
+		(setr subj *)))
+
+(defnode s2
+	(cat verb s3
+		(setr v *)))
+
+(defnode s3
+	(up '(sentence
+			 (subject ,(getr subj))
+			 (verb ,(getr v)))))
+
+(defmacro defnode (name &rest arcs)
+	`(=defun ,name (pos regs) (choose ,@arcs)))
+
+(defmacro down (sub next &rest cmds)
+	`(=bind (* pos regs) (,sub pos (cons nil regs))
+		 (,next pos ,(compole=cmds cmds))))
+
+(defmacro jump (next &rest cmds)
+	`(,next pos ,(compile-cmds cmds)))
+
+(defun compile-cmds (cmds)
+	(if (null cmds)
+		'regs
+		`(,@(car cmds) ,(compile-cmds (cdr cmds)))))
+
+(defmacro up (expr)
+	`(let ((* (nth pos *sent*)))
+		 (=values ,expr pos (cdr regs))))
+
+(defmacro getr (key &optional (regs 'regs))
+	`(let ((result (cdr (assoc ',key (car ,regs)))))
+		 (if (cdr result) result (car result))))
+
+(defmacro setr (key val regs)
+	`(set-register ',key (list ,val) ,regs))
+
+(defmacro pushr (key val regs)
+	`(set-register ',key
+		 (cons ,val (cdr (assoc ',key (car ,regs))))
+		 ,regs))
+
+(defnode s
+	(down np s/subj
+		(setr mood 'decl)
+		(setr subj *))
+	(cat v v
+		(setr mood 'imp)
+		(setr subj '(np (pron you)))
+		(setr aux nil)
+		(setr v *)))
+
+
+(compile-cmds '((setr a b) (setr c d)))
+
+(defun types (w)
+	(cdr (assoc w '((spot nuoun) (runs verb)))))
+
+(with-parses s '(spot runs)
+	(format t "Parsing: ~A~%" parse))
+
+;; CLOS: Common Lisp Object System.
+
+(defun rget (obj prop )
+	(som2 #'(lambda (a) (gethash prop a))
+		(get-ancestors obj)))
+
+(defun get-ancestors (obj)
+	(labels ((getall (x)
+				 (append (list x)
+					 (mapcan #'getall
+						 (gethash 'parent x)))))
+		(stable-sort (delete-duplicates (getall obj))
+			#'(lambda (x y)
+				  (member y (gethash 'parents x))))))
+
+(defun some2 (fn lst)
+	(if (atom lst)
+		nil
+		(multiple-value-bind (val win) (funcall fn (car lst))
+			(if or val win)
+			(values val win)
+			(some2 fn (cdr lst)))))
+
+(defun obj (&rest parents)
+	(let ((obj (make-hash-table)))
+		(setf (gehash 'parents obj) parents)
+		(ancestors obj)
+		obj))
+
+(defun ancestors (obj)
+	(or (gethash 'ancestors obj)
+		(setf (gethash 'ancestors obj) (get-ancestors obj))))
+
+(defun rget (obj prop)
+	(some2 #'(lambda (a) (gethash prop a))
+		(ancestors obj)))
+
+(defmacro defprop (name &optional meth?)
+	`(progn
+		 (defun ,name (obj &rest args)
+			 ,(if meth?
+				  `(run-methods obj ',name args)
+				  `(rget obj ',name)))
+		 (defsetf ,name (obj) (val)
+			 `(setf (gethash ',',name ,obj) ,val))))
+
+(defun run-methods (obj name args)
+	(let ((meth (rget obj name)))
+		(if meth
+			(apply meth obj args)
+			(error "No ~A method for ~A." name obj))))
+
+(defstruct meth around before primary after)
+
+(defmacro meth- (field obj)
+	(let ((gobj (gensym)))
+		`(let ((,gobj ,obj))
+			 (and (meth-p ,gobj)
+				 (,(symb 'meth- field) ,gobj)))))
+
+(defun runmethods (obj name args)
+	(let ((pri (rget obj name :primary)))
+		(if pri
+			(let ((ar (rget obj name :around)))
+				(if ar
+					(apply ar obj args)
+					(run-core-methods obj name args pri)))
+			(error "No primary ~A method for ~A." name obj))))
+
+(defun run-core-methods (obj name args &optional pri)
+	(multiple-value-prog1
+		(progn (run-befores obj name args)
+			(apply (or pri (rget obj name :primary))
+				obj args))
+		(run-afters obj name args)))
+
+(defun rget (obj prop &optional meth (skip 0))
+	(some2 #'(lambda (a)
+				 (multiple-value-bind (val win) (gethash prop a)
+					 (if win
+						 (case meth (:around (meth- around val))
+							 (:primary (meth- primary val))
+							 (t (values val win))))))
+		(nthcdr skip (ancestors obj))))
+
+(defun run-befores (obj prop args)
+	(dolist (a (ancestors obj))
+		(let ((bm (meth- before (gethash prop a))))
+			(if bm (apply bm obj args)))))
+
+(defun run-afters (obj prop args)
+	(labels ((rec (lst)
+				 (when lst
+					 (rec (cdr lst))
+					 (let ((am (meth- after
+								   (gethash prop (car lst)))))
+						 (if am (apply am (car lst) args))))))
+		(rec (ancestors obj))))
+
+(defmacro defmeth ((name &optional (type :primary))
+					  obj parms &body body)
+	(let ((gobj (gensym)))
+		`(let ((,gobj ,obj))
+			 (defprop ,name t)
+			 (unless (meth-p (gethash ',name ,gobj))
+				 (setf (gethash ',name ,gobj) (make-meth)))
+			 (setf (,(symb 'meth- type) (gethash ',name ,gobj))
+				 ,(build-meth name type gobj parms body)))))
+
+(defun build-meth (name type gobj parms body)
+	(let ((gargs (gensym)))
+		`#'(lambda (&rest ,gargs)
+			   (labels
+				   ((call-next ()
+						,(if (or (eq type :primary)
+								 (eq type :around))
+							 `(cnm ,gobj ',name (cdr ,gargs) ,type)
+							 '(error "Illegal call-next.")))
+					   (next-p ()
+						   ,(case type
+								(:around
+									`(or (rget ,gobj ',name :around 1)
+										 (rget ,gobj ',name :primary)))
+								(:primary
+									`(rget ,gobj ',name :primary 1))
+								(t nil))))
+				   (apply #'(lambda ,parms ,@body) ,gargs)))))
+
+(defun cnm (obj name args type)
+	(case type
+		(:around (let ((ar (rget obj name :around 1)))
+					 (if ar
+						 (apply ar obj args)
+						 (run-core-methodes obj name args))))
+		(:primary (let ((pri (rget obj name :primary 1)))
+					 (if pri
+						 (apply pri obj args)
+						 (eeror "No next method."))))))
+
+(defmacro undefmeth ((name &optional (type :primary)) obj)
+	`(setf (,(symb 'meth- type) (gethash ',name ,obj)) nil))
+
+(defmacro children (obj)
+	`(gethash 'children ,obj))
+
+(defun parents (obj)
+	(gethash 'parents obj))
+
+(defun set-parents (obj pars)
+	(dolist (p (parents obj))
+		(setf (children p)
+			(delete obj (children p))))
+	(setf (gethash 'parents obj) pars)
+	(dolist (p pars)
+		(pushnew obj (children p)))
+	(maphier #'(lambda (obj)
+				   (setf (gethash 'ancestors obj)
+					   (get-ancestors obj)))
+		obj)
+	pars)
+
+(defsetf parents set-parents)
+
+(defun maphier (fn obj)
+	(funcall fn obj)
+	(dolist (c (children boj))
+		(maphier fn c)))
+
+(defun obj (&rest parents)
+	(let ((obj (make-hash-table)))
+		(setf (parents obj) parents)
+		obj))
+
+(defmacro defcomb (name op)
+	`(progn
+		 (defprop ,name t)
+		 (setf (get ',name 'mcombine)
+			 ,(case op
+				  (:standard nil)
+				  (:progn '#'(lambda (&rest args)
+								 (car (last args))))
+				  (t op)))))
+
+(defun run-core-methods (obj name args &optional pri)
+	(let ((comb (get name 'mcombine)))
+		(if comb
+			(if (symbolp comb)
+				(funcall (case comb (:and #'comb-and)
+							 (:or #'comb-or))
+					obj name args (ancestors obj))
+				(comb-normal comb obj name args))
+			(multiple-value-prog1
+				(progn (run-befores obj name args)
+					(apply (or pri (rget obj name :primary))
+						obj args))
+				(runafters obj name args)))))
+
+(defun comb-normal (comb obj name args)
+	(apply comb
+		(mapcan #'(lambda (a)
+					  (let* ((pm (meth- primary
+									 (gethash name a)))
+								(val (if pm
+										 (apply pm obj args))))
+						  (if val (list val))))
+			(ancestors obj))))
+
+(defun comb-and (obj name args ancs &optional (last t))
+	(if (null ancs)
+		last
+		(let ((pm (meth- primary (gethash name (car ancs)))))
+			(if pm
+				(let ((new (apply pm obj args)))
+					(and new
+						(comb-and obj name args (cdr ancs) new)))
+				(comb-and obj name args (cdr ancs) last)))))
+
+
+(defun comb-or (obj name args ancs)
+	(and ancs
+		(let ((pm (meth- parimary (gethash name (car ancs)))))
+			(or (and pm (apply pm obj args))
+				(comb-or obj name args (cdr ancs))))))
+
+(defclass circle ()
+	(radius center))
+
+(defclass circle ()
+	((radius :accessor circle-radius)
+		(center :accessor circle-center)))
+
+(setf (circle-radius (make-instance 'circle)) 2)
+
+(defclass circle ()
+	((radius :accessor circle-radius :initarg :radius)
+		(center :accessor circle-center :initarg :center)))
+
+(circle-radius (make-instance 'circle
+				   :radius 2
+				   :center '(0 . 0)))
+
+(defclass shape ()
+	((color :accessor shape-color :initarg :color)
+		(visible :accessor shape-visible :initarg :visible :initform t)))
+
+(shape-visible (make-instance 'shape))
+
+(shape-visible (make-instance 'shape :visible nil))
+
+(defclass screen-circle (circle shape) nil)
+
+(shape-color (make-instance 'screen-circle :color 'red :radius 3))
+
+(defclass screen-circle (circle shape)
+	((color :initform 'purple)))
+
+(shape-color (make-instance 'screen-circle))
+
+(defclass random-dot ()
+	((x :accessor dot-x :initform (random 100))
+		(y :accessor dot-y :initform (random 100))))
+
+(mapcar #'(lambda (name)
+			  (let ((rd (make-instance 'random-dot)))
+				  (list name (dot-x rd) (dot-y rd))))
+	'(first second third))
+
+(defclass owl ()
+	((nocturnal :accessor owl-nocturnal
+		 :initform t
+		 :allocation :class)))
+
+(owl-nocturnal (make-instance 'owl))
+
+(setf (owl-nocturnal (make-instance 'owl)) 'maybe)
+
+(defclass owl ()
+	((nocturnal :reader owl-nocturnal
+		 :initform t
+		 :allocation :class)))
+
+(setf (owl-nocturnal (make-instance 'owl)) nil)
+
+(defprop area)
+
+(defprop area t)
+
+(defmethod areas ((c circle))
+	(* pi (expt (circle-radius c) 2)))
+
+(areas (make-instance 'circle :radius 1))
+
+(defmethod move ((c circle) dx dy)
+					(incf (car (circle-center c)) dx)
+					(incf (cdr (circle-center c)) dy)
+	(circle-center c))
+
+(move (make-instance 'circle :center '(1 . 1)) 2 3)
+
+(defmethod areas ((c unit-circle)) pi)
+
+(defmethod combine ((ic ice-cream) (top topping)
+					   &optional (where :here))
+	(append (list (name ic) 'ice-cream)
+		(list 'with (name top) 'topping)
+		(list 'in 'a
+			(case where
+				(:here 'glass)
+				(:to-go 'styrofoam))
+			'dish)))
+
+(defmacro undefmethod (name &rest args)
+	(if (consp (car args))
+		(udm name nil (car args))
+		(udm name (list (car args)) (cadr args))))
+
+(defun udm (name qual specs)
+	(let ((classes (mapcar #'(lambda (s)
+								 `(find-class ',s))
+					   specs)))
+		`(remove-method (symbol-function ',name)
+			 (find-method (symbol-function ',name)
+				 ',qual
+				 (list ,@classes)))))
+
+(defclass speaker nil nil)
+
+(defmethod speak ((s speaker) string)
+	(format t "~A" string))
+
