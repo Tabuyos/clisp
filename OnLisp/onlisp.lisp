@@ -3522,3 +3522,12 @@ i know what i want and i know when i want it, i want it now
 (defmethod speak ((s speaker) string)
 	(format t "~A" string))
 
+(package-name *package*)
+
+(symbol-package 'foo)
+
+(setq foo 99)
+
+(in-package 'mine :use 'common-lisp)
+
+(in-package 'common-lisp-user)
